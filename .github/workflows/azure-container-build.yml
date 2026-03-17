@@ -1,0 +1,137 @@
+name: Azure Container Build
+
+on:
+  push:
+    branches: [dev, main, stage]
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get commit hash
+        id: commit-hash
+        run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Determine environment context
+        id: env
+        run: |
+          echo "Branch: ${{ github.ref_name }}"
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "env_content=${{ secrets.MAIN_ENV }}" >> $GITHUB_OUTPUT
+            echo "env_name=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "stage" ]]; then
+            echo "env_content=${{ secrets.STAGE_ENV }}" >> $GITHUB_OUTPUT
+            echo "env_name=staging" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "dev" ]]; then
+            echo "env_content=${{ secrets.DEV_ENV }}" >> $GITHUB_OUTPUT
+            echo "env_name=development" >> $GITHUB_OUTPUT
+          else
+            echo "Invalid branch"
+            exit 1
+          fi
+          echo "Deploying to environment: ${{ steps.env.outputs.env_name }}"
+
+      - name: Write .env file to root
+        run: echo "${{ steps.env.outputs.env_content }}" > .env
+
+      - name: Set Docker tags
+        id: docker-tags
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "latest-tag=${{ secrets.ACR_LOGIN_SERVER }}/client:latest" >> $GITHUB_OUTPUT
+            echo "hash-tag=${{ secrets.ACR_LOGIN_SERVER }}/client:${{ steps.commit-hash.outputs.hash }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/stage" ]]; then
+            echo "latest-tag=${{ secrets.ACR_LOGIN_SERVER }}/client:stage-latest" >> $GITHUB_OUTPUT
+            echo "hash-tag=${{ secrets.ACR_LOGIN_SERVER }}/client:stage-${{ steps.commit-hash.outputs.hash }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "latest-tag=${{ secrets.ACR_LOGIN_SERVER }}/client:dev-latest" >> $GITHUB_OUTPUT
+            echo "hash-tag=${{ secrets.ACR_LOGIN_SERVER }}/client:dev-${{ steps.commit-hash.outputs.hash }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to ACR
+        run: echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
+
+      - name: Build Docker image
+        run: |
+          docker build --no-cache -t ${{ steps.docker-tags.outputs.latest-tag }} -t ${{ steps.docker-tags.outputs.hash-tag }} .
+
+      - name: Push Docker images
+        run: |
+          docker push ${{ steps.docker-tags.outputs.latest-tag }}
+          docker push ${{ steps.docker-tags.outputs.hash-tag }}
+
+# static web app deployment
+
+# name: Azure SWA Deploy with Logs and .env
+
+# on:
+#   push:
+#     branches:
+#       - main
+#       - stage
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: "20"
+
+#       - name: Determine environment context
+#         id: env
+#         run: |
+#           echo "Branch: ${{ github.ref_name }}"
+#           if [[ "${{ github.ref_name }}" == "main" ]]; then
+#             echo "env_content=${{ secrets.MAIN_ENV }}" >> $GITHUB_OUTPUT
+#             echo "env_name=production" >> $GITHUB_OUTPUT
+#           elif [[ "${{ github.ref_name }}" == "stage" ]]; then
+#             echo "env_content=${{ secrets.STAGE_ENV }}" >> $GITHUB_OUTPUT
+#             echo "env_name=staging" >> $GITHUB_OUTPUT
+#           else
+#             echo "Invalid branch"
+#             exit 1
+#           fi
+#           echo "Deploying to environment: ${{ steps.env.outputs.env_name }}"
+
+#       - name: Write .env file
+#         run: |
+#           echo "Writing .env file..."
+#           echo "${{ steps.env.outputs.env_content }}" > .env
+#           echo ".env file written successfully."
+
+#       - name: Print .env for debug (non-sensitive keys only)
+#         run: |
+#           echo "Printing safe contents of .env:"
+#           grep -Ev 'SECRET|TOKEN|PASSWORD' .env || echo "All keys are hidden due to sensitivity."
+
+#       - name: Install npm dependencies
+#         run: |
+#           echo "Installing project dependencies..."
+#           npm install --force
+
+#       - name: Build project
+#         run: |
+#           echo "Building the project..."
+#           npm run build
+
+#       - name: Install Azure Static Web Apps CLI
+#         run: |
+#           echo "Installing SWA CLI..."
+#           npm install -g @azure/static-web-apps-cli
+
+#       - name: Deploy to Azure Static Web Apps
+#         run: |
+#           echo "Starting deployment..."
+#           swa deploy dist \
+#             --deployment-token ${{ secrets.AZURE_STATIC_WEB_APPS_TOKEN }} \
+#             --env ${{ steps.env.outputs.env_name }}
+#           echo "Deployment completed successfully."
+
