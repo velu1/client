@@ -1,0 +1,2 @@
+echo "Running version bump script after merge..."
+npm run bump-version
