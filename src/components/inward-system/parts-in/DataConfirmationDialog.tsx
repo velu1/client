@@ -11,7 +11,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import InfoIcon from "@mui/icons-material/Info";
 
-const AUTO_SUBMIT_DELAY = 3; // Auto-submit delay in seconds
+const AUTO_SUBMIT_DELAY = 10; // Auto-submit delay in seconds
 
 interface ValidationData {
   partNumber: string;
@@ -376,7 +376,12 @@ const DataConfirmationDialog: React.FC<DataConfirmationDialogProps> = ({
                     Label data
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {(capturedData.fields || []).map((fieldName) => {
+                    {(capturedData.fields || []).filter((fieldName) => {
+                      const val = getFieldValue(fieldName);
+                      if (val === null || val === undefined || val === "" || val === "-") return false;
+                      if (Array.isArray(val) && val.length === 0) return false;
+                      return true;
+                    }).map((fieldName) => {
                       // Special handling for quantity field with MOQ validation
                       if (fieldName === "quantity") {
                         return (

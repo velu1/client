@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Camera, RotateCcw } from "lucide-react";
+import { Camera, RotateCcw, Upload } from "lucide-react";
 import { toast } from "react-fox-toast";
 
 const CAMERA_CONFIG = {
   dimensions: { width: 1920, height: 1080 },
   shouldDownloadCapture: false,
 } as const;
+
+const MAX_UPLOAD_SIZE_MB = 10;
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff"];
 
 interface CameraCaptureProps {
   onCapture?: (dataUrl: string, base64Data: string | null) => void;
@@ -30,8 +33,11 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [frameRate, setFrameRate] = useState<number>(0);
+  const [isUploadedImage, setIsUploadedImage] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const frameCountRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
 
@@ -167,6 +173,8 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   const handleReset = () => {
     if (disabled) return;
     setCapturedImage(null);
+    setIsUploadedImage(false);
+    setUploadedFileName("");
     setCameraActive(false);
     setCameraPermission("not-requested");
     if (videoStream) {
@@ -177,12 +185,56 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
     startCamera();
   };
 
+  // Auto-reset only for camera captures, not uploaded images
   useEffect(() => {
-    if (capturedImage && onCapture) {
+    if (capturedImage && onCapture && !isUploadedImage) {
       const timer = setTimeout(() => handleReset(), 500);
       return () => clearTimeout(timer);
     }
   }, [capturedImage]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!hasReceiptNumber) {
+      toast.error("Please enter a receipt number first");
+      e.target.value = "";
+      return;
+    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      toast.error("Invalid file type. Please upload a JPEG, PNG, WebP, BMP, or TIFF image.");
+      e.target.value = "";
+      return;
+    }
+
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > MAX_UPLOAD_SIZE_MB) {
+      toast.error(`File too large. Maximum allowed size is ${MAX_UPLOAD_SIZE_MB}MB.`);
+      e.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64Data = dataUrl.split(",")[1] || null;
+      if (videoStream) {
+        videoStream.getTracks().forEach((t) => t.stop());
+        setVideoStream(null);
+        setCameraActive(false);
+      }
+      setIsUploadedImage(true);
+      setUploadedFileName(file.name);
+      setCapturedImage(dataUrl);
+      if (onCapture) onCapture(dataUrl, base64Data);
+    };
+    reader.onerror = () => {
+      toast.error("Failed to read the file. Please try again.");
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   const canCapture = !disabled && !isCapturing && hasReceiptNumber;
 
@@ -190,7 +242,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
     <div
       className={`relative w-full h-70 md:h-100 rounded-xl border border-gray-200 overflow-hidden bg-[#f8f9fa] ${className || ""}`}
     >
-      {/* Live feed or captured image */}
+      {/* Live feed or captured/uploaded image */}
       {cameraActive ? (
         <video
           ref={videoRef}
@@ -202,9 +254,9 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       ) : capturedImage ? (
         <img
           src={capturedImage}
-          alt="Captured"
+          alt={isUploadedImage ? "Uploaded" : "Captured"}
           className="absolute inset-0 w-full h-full object-contain"
-          style={{ filter: "grayscale(1)" }}
+          style={{ filter: isUploadedImage ? "none" : "grayscale(1)" }}
         />
       ) : (
         /* Empty / idle state */
@@ -227,12 +279,24 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
         </div>
       )}
 
-      {/* Camera indicator badge */}
+      {/* Badge: Live / Uploaded */}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg px-2.5 py-1.5 shadow-sm">
-        <Camera size={13} className="text-[#434a52]" />
-        <span className="text-xs font-medium text-[#434a52]">Live</span>
-        {cameraActive && (
-          <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+        {isUploadedImage ? (
+          <>
+            <Upload size={13} className="text-blue-600" />
+            <span className="text-xs font-medium text-blue-600">Uploaded</span>
+            {uploadedFileName && (
+              <span className="text-xs text-gray-400 max-w-35 truncate">{uploadedFileName}</span>
+            )}
+          </>
+        ) : (
+          <>
+            <Camera size={13} className="text-[#434a52]" />
+            <span className="text-xs font-medium text-[#434a52]">Live</span>
+            {cameraActive && (
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+            )}
+          </>
         )}
       </div>
 
@@ -261,6 +325,14 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
           Reset
         </button>
         <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled || isCapturing}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium border border-gray-300 bg-white/90 backdrop-blur-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        >
+          <Upload size={12} />
+          Upload
+        </button>
+        <button
           onClick={handleCameraCapture}
           disabled={!canCapture}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-[#434a52] text-white hover:bg-[#676e6e] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
@@ -270,6 +342,13 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
         </button>
       </div>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
       <canvas ref={canvasRef} className="hidden" />
     </div>
   );

@@ -67,6 +67,10 @@ const PartsInCapture: React.FC<PartsInCaptureProps> = ({
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [templateName] = useState("Default Template");
+
+  useEffect(() => {
+    if (isActive) setCollapsed(false);
+  }, [isActive]);
   const [manufacturer] = useState("Samsung");
   const isRedirectingRef = useRef(false);
   const [dialogMode, setDialogMode] = useState<

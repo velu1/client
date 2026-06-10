@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { toast } from "react-fox-toast";
+import { Upload } from "lucide-react";
 
 // Camera configuration constants
 const CAMERA_CONFIG = {
@@ -30,8 +31,10 @@ const Capture: React.FC<CameraCaptureProps> = ({
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isUploadedImage, setIsUploadedImage] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Auto start camera when component mounts
   useEffect(() => {
@@ -160,11 +163,46 @@ const Capture: React.FC<CameraCaptureProps> = ({
     setIsCapturing(false);
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/bmp", "image/tiff"];
+    if (!allowed.includes(file.type)) {
+      toast.error("Invalid file type. Please upload a JPEG, PNG, WebP, BMP, or TIFF image.");
+      e.target.value = "";
+      return;
+    }
+    if (file.size / (1024 * 1024) > 10) {
+      toast.error("File too large. Maximum allowed size is 10MB.");
+      e.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64Data = dataUrl.split(",")[1] || null;
+      if (videoStream) {
+        videoStream.getTracks().forEach((t) => t.stop());
+        setVideoStream(null);
+        setCameraActive(false);
+      }
+      setIsUploadedImage(true);
+      setCapturedImage(dataUrl);
+      if (onCapture) onCapture(dataUrl, base64Data);
+    };
+    reader.onerror = () => toast.error("Failed to read the file. Please try again.");
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   // Handle Reset
   const handleReset = () => {
     if (disabled) return;
 
     setCapturedImage(null);
+    setIsUploadedImage(false);
     setCameraActive(false);
     setCameraPermission("not-requested");
     if (videoStream) {
@@ -177,10 +215,9 @@ const Capture: React.FC<CameraCaptureProps> = ({
     startCamera();
   };
 
-  // Auto-reset after successful capture
+  // Auto-reset after camera capture only (not uploads)
   useEffect(() => {
-    if (capturedImage && onCapture) {
-      // Wait a brief moment to ensure the capture is processed
+    if (capturedImage && onCapture && !isUploadedImage) {
       const timer = setTimeout(() => {
         handleReset();
       }, 500);
@@ -256,6 +293,14 @@ const Capture: React.FC<CameraCaptureProps> = ({
         </div>
       )} */}
 
+      {/* Uploaded badge */}
+      {isUploadedImage && (
+        <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg px-2.5 py-1.5 shadow-sm">
+          <Upload size={13} className="text-blue-600" />
+          <span className="text-xs font-medium text-blue-600">Uploaded</span>
+        </div>
+      )}
+
       {/* Action Buttons */}
       <div className="absolute bottom-2 right-4 z-10 flex gap-2">
         {!isTrial && (
@@ -272,6 +317,14 @@ const Capture: React.FC<CameraCaptureProps> = ({
           </button>
         )}
         <button
+          className="flex items-center gap-1.5 bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 px-4 md:px-5 py-2 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled || isCapturing}
+        >
+          <Upload size={13} />
+          Upload
+        </button>
+        <button
           className={`${
             disabled
               ? "bg-gray-400 cursor-not-allowed"
@@ -280,9 +333,16 @@ const Capture: React.FC<CameraCaptureProps> = ({
           onClick={handleCameraCapture}
           disabled={disabled || isCapturing}
         >
-          {isCapturing ? "Processing..." : cameraActive ? "Capture" : "Capture"}
+          {isCapturing ? "Processing..." : "Capture"}
         </button>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
       {/* Hidden canvas for capture */}
       <canvas ref={canvasRef} className="hidden" />
     </div>

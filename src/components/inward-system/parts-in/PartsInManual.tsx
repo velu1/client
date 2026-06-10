@@ -48,6 +48,10 @@ const PartsInManual: React.FC<PartsInManualProps> = ({
   });
   const [collapsed, setCollapsed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isActive) setCollapsed(false);
+  }, [isActive]);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [showCameraPopup, setShowCameraPopup] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
